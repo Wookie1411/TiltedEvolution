@@ -2,6 +2,7 @@
 
 #include <GameServer.h>
 #include <World.h>
+#include <Services/TetherService.h>
 
 #include <Events/UpdateEvent.h>
 #include <Messages/FastTravelRequest.h>
@@ -154,6 +155,7 @@ void FastTravelService::OnFastTravelRequest(const PacketEvent<FastTravelRequest>
             request.Approved = true;
             request.Started = std::chrono::steady_clock::now();
             notify.TravelEvent = NotifyFastTravel::kApproved;
+            m_world.ctx().at<TetherService>().Pause(*cPartyId, std::chrono::seconds(90)); // until arrival
 
             // The host always goes first. If a partner asked, the host is moved to the marker
             // and everyone else (the requester too) follows the host after arrival.
@@ -211,6 +213,7 @@ void FastTravelService::OnFastTravelRequest(const PacketEvent<FastTravelRequest>
             if (pMember != pPlayer)
                 pMember->Send(teleport);
         }
+        m_world.ctx().at<TetherService>().Pause(*cPartyId, std::chrono::seconds(20)); // followers' loading screens
         m_requests.erase(*cPartyId);
         break;
     }
