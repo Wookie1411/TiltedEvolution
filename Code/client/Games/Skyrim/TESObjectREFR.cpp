@@ -9,6 +9,7 @@
 #include <Events/InventoryChangeEvent.h>
 #include <Events/ScriptAnimationEvent.h>
 #include <Events/LockChangeEvent.h>
+#include <Messages/DoorVoteRequest.h>
 
 #include <ExtraData/ExtraDataList.h>
 #include <ExtraData/ExtraCharge.h>
@@ -1019,8 +1020,31 @@ bool TP_MAKE_THISCALL(HookPlayAnimation, void, uint32_t auiStackID, TESObjectREF
 }
 
 // SkyrimCoop M2: door voting. A load door used by the local player while in a party with
-// someone else is held back instead of activated ("Waiting for partner...").
-// Step 2: held doors never open yet; the server vote comes in step 3.
+// someone else is held back and a vote is sent to the server instead. Once every party member
+// voted for the same door, the server answers with NotifyDoorVote (ObjectService), which
+// approves the door and activates it.
+
+namespace
+{
+std::mutex s_doorVoteMutex;
+uint32_t s_approvedDoor = 0;
+std::chrono::steady_clock::time_point s_approvedUntil{};
+} // namespace
+
+// The game activates a load door a second time ~15 ms after a successful first activation;
+// the approval has to cover that follow-up call too.
+void TESObjectREFR::ApproveLoadDoor(uint32_t aFormId) noexcept
+{
+    std::scoped_lock lock(s_doorVoteMutex);
+    s_approvedDoor = aFormId;
+    s_approvedUntil = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+}
+
+static bool IsLoadDoorApproved(uint32_t aFormId) noexcept
+{
+    std::scoped_lock lock(s_doorVoteMutex);
+    return s_approvedDoor == aFormId && std::chrono::steady_clock::now() < s_approvedUntil;
+}
 
 // The door's destination, or nullptr if it's not a load door.
 static DoorTeleportData* GetLoadDoorTeleport(TESObjectREFR* apDoor) noexcept
@@ -1041,7 +1065,7 @@ static bool IsDoorLocked(TESObjectREFR* apDoor) noexcept
 // Runs on whichever game thread activates the door; the party state is only read here.
 static bool ShouldHoldLoadDoor(TESObjectREFR* apDoor) noexcept
 {
-    if (!GetLoadDoorTeleport(apDoor) || IsDoorLocked(apDoor))
+    if (!GetLoadDoorTeleport(apDoor) || IsDoorLocked(apDoor) || IsLoadDoorApproved(apDoor->formID))
         return false;
 
     World& world = World::Get();
@@ -1069,16 +1093,14 @@ static void LogLoadDoorActivation(TESObjectREFR* apDoor, bool aHeld, uint8_t aUn
                  target.x, target.y, target.z, IsDoorLocked(apDoor), aUnk1, aCount, static_cast<int>(aDefaultProcessing));
 }
 
-// The game activates a load door twice per key press (two threads, ~15 ms apart),
-// so only tell the player once per door and half second.
+// Sends the vote (at most once per door and half second, in case the game calls twice).
 static void OnLoadDoorHeld(TESObjectREFR* apDoor) noexcept
 {
-    static std::mutex s_mutex;
     static uint32_t s_lastDoor = 0;
     static std::chrono::steady_clock::time_point s_lastTime{};
 
     {
-        std::scoped_lock lock(s_mutex);
+        std::scoped_lock lock(s_doorVoteMutex);
         const auto cNow = std::chrono::steady_clock::now();
         if (s_lastDoor == apDoor->formID && cNow - s_lastTime < std::chrono::milliseconds(500))
             return;
@@ -1086,7 +1108,23 @@ static void OnLoadDoorHeld(TESObjectREFR* apDoor) noexcept
         s_lastTime = cNow;
     }
 
-    World::Get().GetRunner().Queue([]() { World::Get().GetOverlayService().SendSystemMessage("Waiting for partner..."); });
+    const TESObjectCELL* pCell = apDoor->GetParentCellEx();
+    const uint32_t cDoorFormId = apDoor->formID;
+    const uint32_t cCellFormId = pCell ? pCell->formID : 0;
+
+    World::Get().GetRunner().Queue(
+        [cDoorFormId, cCellFormId]()
+        {
+            World& world = World::Get();
+            DoorVoteRequest request{};
+            if (!world.GetModSystem().GetServerModId(cDoorFormId, request.DoorId))
+            {
+                spdlog::error("[SkyrimCoop] No server id for door {:X}", cDoorFormId);
+                return;
+            }
+            world.GetModSystem().GetServerModId(cCellFormId, request.CellId);
+            world.GetTransport().Send(request);
+        });
 }
 
 bool TP_MAKE_THISCALL(HookActivate, TESObjectREFR, TESObjectREFR* apActivator, uint8_t aUnk1, TESBoundObject* apObjectToGet, int32_t aCount, char aDefaultProcessing)

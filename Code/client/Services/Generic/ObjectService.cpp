@@ -16,6 +16,7 @@
 #include <Messages/NotifyLockChange.h>
 #include <Messages/ScriptAnimationRequest.h>
 #include <Messages/NotifyScriptAnimation.h>
+#include <Messages/NotifyDoorVote.h>
 
 #include <PlayerCharacter.h>
 #include <Forms/TESObjectCELL.h>
@@ -39,6 +40,7 @@ ObjectService::ObjectService(World& aWorld, entt::dispatcher& aDispatcher, Trans
     m_assignObjectConnection = aDispatcher.sink<AssignObjectsResponse>().connect<&ObjectService::OnAssignObjectsResponse>(this);
     m_scriptAnimationConnection = aDispatcher.sink<ScriptAnimationEvent>().connect<&ObjectService::OnScriptAnimationEvent>(this);
     m_scriptAnimationNotifyConnection = aDispatcher.sink<NotifyScriptAnimation>().connect<&ObjectService::OnNotifyScriptAnimation>(this);
+    m_doorVoteConnection = aDispatcher.sink<NotifyDoorVote>().connect<&ObjectService::OnNotifyDoorVote>(this);
 
     EventDispatcherManager::Get()->activateEvent.RegisterSink(this);
 }
@@ -462,4 +464,33 @@ BSTEventResult ObjectService::OnEvent(const TESActivateEvent* acEvent, const Eve
 #endif
 
     return BSTEventResult::kOk;
+}
+
+// SkyrimCoop door voting: the server reports the party's vote (see DoorVoteService on the server).
+void ObjectService::OnNotifyDoorVote(const NotifyDoorVote& acMessage) noexcept
+{
+    auto& overlay = m_world.GetOverlayService();
+    const bool cFromMe = acMessage.VoterId == m_transport.GetLocalPlayerId();
+
+    if (acMessage.VoteStatus == NotifyDoorVote::kWaiting)
+    {
+        if (cFromMe)
+            overlay.SendSystemMessage(fmt::format("Waiting for partner... ({}/{})", acMessage.Votes, acMessage.Needed));
+        else
+            overlay.SendSystemMessage(fmt::format("{} is waiting at a door ({}/{}). Press E on the same door to follow.", acMessage.VoterName.c_str(), acMessage.Votes, acMessage.Needed));
+        return;
+    }
+
+    const uint32_t cDoorId = m_world.GetModSystem().GetGameId(acMessage.DoorId);
+    TESObjectREFR* pDoor = Cast<TESObjectREFR>(TESForm::GetById(cDoorId));
+    if (!pDoor)
+    {
+        spdlog::error("[SkyrimCoop] Door vote passed, but door {:X} isn't loaded here", cDoorId);
+        overlay.SendSystemMessage("Door vote passed, but the door isn't near you.");
+        return;
+    }
+
+    spdlog::info("[SkyrimCoop] Door vote passed: going through door {:X}", cDoorId);
+    TESObjectREFR::ApproveLoadDoor(pDoor->formID);
+    pDoor->Activate(PlayerCharacter::Get(), 0, nullptr, 1, 0);
 }

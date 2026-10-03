@@ -59,6 +59,9 @@ struct TESObjectREFR : TESForm
     };
 
     static TESObjectREFR* GetByHandle(uint32_t aHandle) noexcept;
+
+    // SkyrimCoop door voting: let this load door through for a few seconds (vote passed).
+    static void ApproveLoadDoor(uint32_t aFormId) noexcept;
     static uint32_t* GetNullHandle() noexcept;
 
     static void GetItemFromExtraData(Inventory::Entry& arEntry, ExtraDataList* apExtraDataList) noexcept;
