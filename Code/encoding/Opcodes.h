@@ -53,8 +53,7 @@ enum ClientOpcode : unsigned char
     kRequestSetWaypoint,
     kRequestRemoveWaypoint,
     kSetTimeCommandRequest,
-    kDoorVoteRequest,
-    kFastTravelRequest,
+    kFollowRequest,
     kClientOpcodeMax
 };
 
@@ -114,7 +113,6 @@ enum ServerOpcode : unsigned char
     kNotifySetWaypoint,
     kNotifyRemoveWaypoint,
     kNotifySetTimeResult,
-    kNotifyDoorVote,
-    kNotifyFastTravel,
+    kNotifyFollowOffer,
     kServerOpcodeMax
 };

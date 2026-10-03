@@ -15,8 +15,6 @@ struct CellChangeEvent;
 struct ScriptAnimationEvent;
 struct AssignObjectsResponse;
 struct NotifyScriptAnimation;
-struct NotifyDoorVote;
-struct UpdateEvent;
 
 /**
  * @brief Handles objects in the environment.
@@ -36,8 +34,6 @@ private:
     void OnLockChangeNotify(const NotifyLockChange&) noexcept;
     void OnScriptAnimationEvent(const ScriptAnimationEvent&) noexcept;
     void OnNotifyScriptAnimation(const NotifyScriptAnimation&) noexcept;
-    void OnNotifyDoorVote(const NotifyDoorVote&) noexcept;
-    void OnUpdate(const UpdateEvent&) noexcept;
 
     BSTEventResult OnEvent(const TESActivateEvent*, const EventDispatcher<TESActivateEvent>*) override;
 
@@ -55,15 +51,4 @@ private:
     entt::scoped_connection m_assignObjectConnection;
     entt::scoped_connection m_scriptAnimationConnection;
     entt::scoped_connection m_scriptAnimationNotifyConnection;
-    entt::scoped_connection m_doorVoteConnection;
-    entt::scoped_connection m_updateConnection;
-
-    // Host only: went through a voted door, report the arrival once loaded in (partners follow then).
-    struct DoorArrivalWatch
-    {
-        GameId DoorId;
-        uint32_t OriginCellId{};
-        std::chrono::steady_clock::time_point Deadline;
-    };
-    std::optional<DoorArrivalWatch> m_doorArrivalWatch;
 };

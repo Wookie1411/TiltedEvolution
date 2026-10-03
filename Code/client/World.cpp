@@ -21,7 +21,7 @@
 #include <Services/CombatService.h>
 #include <Services/WeatherService.h>
 #include <Services/MapService.h>
-#include <Services/FastTravelService.h>
+#include <Services/FollowService.h>
 #include <Services/CoopOverlayService.h>
 
 #include <Events/PreUpdateEvent.h>
@@ -56,7 +56,7 @@ World::World()
     ctx().emplace<CombatService>(*this, m_transport, m_dispatcher);
     ctx().emplace<WeatherService>(*this, m_transport, m_dispatcher);
     ctx().emplace<MapService>(*this, m_dispatcher, m_transport);
-    ctx().emplace<FastTravelService>(*this, m_dispatcher, m_transport);
+    ctx().emplace<FollowService>(*this, m_dispatcher, m_transport);
     ctx().emplace<CoopOverlayService>(*this, m_dispatcher, ctx().at<ImguiService>());
 
     BehaviorVar::Get()->Init();

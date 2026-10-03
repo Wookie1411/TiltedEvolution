@@ -9,7 +9,7 @@
 #include <Events/InventoryChangeEvent.h>
 #include <Events/ScriptAnimationEvent.h>
 #include <Events/LockChangeEvent.h>
-#include <Messages/DoorVoteRequest.h>
+#include <Services/FollowService.h>
 
 #include <ExtraData/ExtraDataList.h>
 #include <ExtraData/ExtraCharge.h>
@@ -1019,32 +1019,8 @@ bool TP_MAKE_THISCALL(HookPlayAnimation, void, uint32_t auiStackID, TESObjectREF
     return TiltedPhoques::ThisCall(RealPlayAnimation, apThis, auiStackID, apSelf, apEventName);
 }
 
-// SkyrimCoop M2: door voting. A load door used by the local player while in a party with
-// someone else is held back and a vote is sent to the server instead. Once every party member
-// voted for the same door, the server answers with NotifyDoorVote (ObjectService), which
-// approves the door and activates it.
-
-namespace
-{
-std::mutex s_doorVoteMutex;
-uint32_t s_approvedDoor = 0;
-std::chrono::steady_clock::time_point s_approvedUntil{};
-} // namespace
-
-// The game activates a load door a second time ~15 ms after a successful first activation;
-// the approval has to cover that follow-up call too.
-void TESObjectREFR::ApproveLoadDoor(uint32_t aFormId) noexcept
-{
-    std::scoped_lock lock(s_doorVoteMutex);
-    s_approvedDoor = aFormId;
-    s_approvedUntil = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-}
-
-static bool IsLoadDoorApproved(uint32_t aFormId) noexcept
-{
-    std::scoped_lock lock(s_doorVoteMutex);
-    return s_approvedDoor == aFormId && std::chrono::steady_clock::now() < s_approvedUntil;
-}
+// SkyrimCoop follow offers: when the local player uses a load door (a door with a loading screen),
+// FollowService watches for the arrival and then offers the other party members to follow.
 
 // The door's destination, or nullptr if it's not a load door.
 static DoorTeleportData* GetLoadDoorTeleport(TESObjectREFR* apDoor) noexcept
@@ -1062,69 +1038,36 @@ static bool IsDoorLocked(TESObjectREFR* apDoor) noexcept
     return pLock && (pLock->flags & 0xFF); // same check as ObjectService::OnActivate
 }
 
-// Runs on whichever game thread activates the door; the party state is only read here.
-static bool ShouldHoldLoadDoor(TESObjectREFR* apDoor) noexcept
-{
-    if (!GetLoadDoorTeleport(apDoor) || IsDoorLocked(apDoor) || IsLoadDoorApproved(apDoor->formID))
-        return false;
-
-    World& world = World::Get();
-    if (!world.GetTransport().IsConnected())
-        return false;
-
-    const PartyService& partyService = world.GetPartyService();
-    return partyService.IsInParty() && partyService.GetPartyMembers().size() >= 2;
-}
-
-static void LogLoadDoorActivation(TESObjectREFR* apDoor, bool aHeld, uint8_t aUnk1, int32_t aCount, char aDefaultProcessing) noexcept
+// Runs on the game thread that activates the door. The game activates a load door twice per press
+// (the second call follows a successful first one ~15 ms later), so only report once per second.
+static void OnLocalLoadDoorUsed(TESObjectREFR* apDoor) noexcept
 {
     const DoorTeleportData* pTeleportData = GetLoadDoorTeleport(apDoor);
-    if (!pTeleportData)
+    if (!pTeleportData || IsDoorLocked(apDoor))
         return;
 
-    const TESObjectCELL* pCell = apDoor->GetParentCellEx();
-    const TESObjectREFR* pLinkedDoor = TESObjectREFR::GetByHandle(pTeleportData->linkedDoor);
-    const TESObjectCELL* pTargetCell = pLinkedDoor ? pLinkedDoor->GetParentCellEx() : nullptr;
-    const auto& target = pTeleportData->position;
-
-    spdlog::info("[SkyrimCoop] Load door {}: door {:X} '{}' in cell {:X} -> linked door {:X} in cell {:X} at ({:.0f}, {:.0f}, {:.0f}), locked: {} [unk1 {}, count {}, defaultProcessing {}]",
-                 aHeld ? "HELD" : "used", apDoor->formID, apDoor->baseForm->GetName(), pCell ? pCell->formID : 0,
-                 pLinkedDoor ? pLinkedDoor->formID : 0, pTargetCell ? pTargetCell->formID : 0,
-                 target.x, target.y, target.z, IsDoorLocked(apDoor), aUnk1, aCount, static_cast<int>(aDefaultProcessing));
-}
-
-// Sends the vote (at most once per door and half second, in case the game calls twice).
-static void OnLoadDoorHeld(TESObjectREFR* apDoor) noexcept
-{
+    static std::mutex s_mutex;
     static uint32_t s_lastDoor = 0;
     static std::chrono::steady_clock::time_point s_lastTime{};
-
     {
-        std::scoped_lock lock(s_doorVoteMutex);
+        std::scoped_lock lock(s_mutex);
         const auto cNow = std::chrono::steady_clock::now();
-        if (s_lastDoor == apDoor->formID && cNow - s_lastTime < std::chrono::milliseconds(500))
+        if (s_lastDoor == apDoor->formID && cNow - s_lastTime < std::chrono::seconds(1))
             return;
         s_lastDoor = apDoor->formID;
         s_lastTime = cNow;
     }
 
     const TESObjectCELL* pCell = apDoor->GetParentCellEx();
-    const uint32_t cDoorFormId = apDoor->formID;
-    const uint32_t cCellFormId = pCell ? pCell->formID : 0;
+    const TESObjectREFR* pLinkedDoor = TESObjectREFR::GetByHandle(pTeleportData->linkedDoor);
+    const TESObjectCELL* pTargetCell = pLinkedDoor ? pLinkedDoor->GetParentCellEx() : nullptr;
+    const char* pTargetName = pTargetCell ? pTargetCell->GetName() : nullptr;
+    String destination = pTargetName && pTargetName[0] ? String(pTargetName) : String();
 
-    World::Get().GetRunner().Queue(
-        [cDoorFormId, cCellFormId]()
-        {
-            World& world = World::Get();
-            DoorVoteRequest request{};
-            if (!world.GetModSystem().GetServerModId(cDoorFormId, request.DoorId))
-            {
-                spdlog::error("[SkyrimCoop] No server id for door {:X}", cDoorFormId);
-                return;
-            }
-            world.GetModSystem().GetServerModId(cCellFormId, request.CellId);
-            world.GetTransport().Send(request);
-        });
+    spdlog::info("[SkyrimCoop] Load door used: door {:X} in cell {:X} -> cell {:X} '{}'", apDoor->formID, pCell ? pCell->formID : 0, pTargetCell ? pTargetCell->formID : 0,
+                 destination.c_str());
+
+    World::Get().ctx().at<FollowService>().OnLocalLoadDoorUsed(destination, pCell ? pCell->formID : 0);
 }
 
 bool TP_MAKE_THISCALL(HookActivate, TESObjectREFR, TESObjectREFR* apActivator, uint8_t aUnk1, TESBoundObject* apObjectToGet, int32_t aCount, char aDefaultProcessing)
@@ -1132,16 +1075,7 @@ bool TP_MAKE_THISCALL(HookActivate, TESObjectREFR, TESObjectREFR* apActivator, u
     Actor* pActivator = Cast<Actor>(apActivator);
 
     if (pActivator && pActivator == PlayerCharacter::Get())
-    {
-        const bool cHold = ShouldHoldLoadDoor(apThis);
-        LogLoadDoorActivation(apThis, cHold, aUnk1, aCount, aDefaultProcessing);
-
-        if (cHold)
-        {
-            OnLoadDoorHeld(apThis);
-            return false;
-        }
-    }
+        OnLocalLoadDoorUsed(apThis);
 
     // Exclude books from activation since only reading them removes them from the cell
     // Note: Books are now unsynced 
