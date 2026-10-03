@@ -14,6 +14,7 @@ struct NotifyDoorVote final : ServerMessage
         kWaiting = 0, // someone voted, not everyone yet
         kPassed = 1,  // everyone voted for DoorId: go through it now
         kCancelled = 2, // vote is gone, see CancelReason
+        kHostGoing = 3, // to the partners: vote passed, the host (VoterName) goes through first; kPassed follows
     };
 
     enum CancelReason : uint8_t

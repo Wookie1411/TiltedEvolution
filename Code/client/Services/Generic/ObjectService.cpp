@@ -17,6 +17,8 @@
 #include <Messages/ScriptAnimationRequest.h>
 #include <Messages/NotifyScriptAnimation.h>
 #include <Messages/NotifyDoorVote.h>
+#include <Messages/DoorVoteRequest.h>
+#include <Interface/UI.h>
 
 #include <PlayerCharacter.h>
 #include <Forms/TESObjectCELL.h>
@@ -41,6 +43,7 @@ ObjectService::ObjectService(World& aWorld, entt::dispatcher& aDispatcher, Trans
     m_scriptAnimationConnection = aDispatcher.sink<ScriptAnimationEvent>().connect<&ObjectService::OnScriptAnimationEvent>(this);
     m_scriptAnimationNotifyConnection = aDispatcher.sink<NotifyScriptAnimation>().connect<&ObjectService::OnNotifyScriptAnimation>(this);
     m_doorVoteConnection = aDispatcher.sink<NotifyDoorVote>().connect<&ObjectService::OnNotifyDoorVote>(this);
+    m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&ObjectService::OnUpdate>(this);
 
     EventDispatcherManager::Get()->activateEvent.RegisterSink(this);
 }
@@ -481,6 +484,12 @@ void ObjectService::OnNotifyDoorVote(const NotifyDoorVote& acMessage) noexcept
         return;
     }
 
+    if (acMessage.VoteStatus == NotifyDoorVote::kHostGoing)
+    {
+        overlay.SendSystemMessage(fmt::format("{} goes through first, you'll follow in a moment.", acMessage.VoterName.c_str()));
+        return;
+    }
+
     if (acMessage.VoteStatus == NotifyDoorVote::kCancelled)
     {
         switch (acMessage.Reason)
@@ -504,6 +513,39 @@ void ObjectService::OnNotifyDoorVote(const NotifyDoorVote& acMessage) noexcept
     }
 
     spdlog::info("[SkyrimCoop] Door vote passed: going through door {:X}", cDoorId);
+
+    // As the host of a party, report the arrival so the partners can follow.
+    const auto& partyService = m_world.GetPartyService();
+    const TESObjectCELL* pCell = PlayerCharacter::Get()->GetParentCellEx();
+    if (partyService.IsLeader() && partyService.GetPartyMembers().size() >= 2 && pCell)
+        m_doorArrivalWatch = DoorArrivalWatch{acMessage.DoorId, pCell->formID, std::chrono::steady_clock::now() + std::chrono::seconds(30)};
+
     TESObjectREFR::ApproveLoadDoor(pDoor->formID);
     pDoor->Activate(PlayerCharacter::Get(), 0, nullptr, 1, 0);
+}
+
+// Host: arrived once we're in another cell and the loading screen is gone.
+void ObjectService::OnUpdate(const UpdateEvent&) noexcept
+{
+    if (!m_doorArrivalWatch)
+        return;
+
+    const TESObjectCELL* pCell = PlayerCharacter::Get()->GetParentCellEx();
+    UI* pUI = UI::Get();
+    const bool cLoading = pUI && pUI->GetMenuOpen(BSFixedString("Loading Menu"));
+
+    if (pCell && pCell->formID != m_doorArrivalWatch->OriginCellId && !cLoading)
+    {
+        DoorVoteRequest request{};
+        request.DoorId = m_doorArrivalWatch->DoorId;
+        request.Arrived = true;
+        m_transport.Send(request);
+        spdlog::info("[SkyrimCoop] Door trip: host arrived in cell {:X}, partners may follow", pCell->formID);
+        m_doorArrivalWatch.reset();
+    }
+    else if (std::chrono::steady_clock::now() > m_doorArrivalWatch->Deadline)
+    {
+        spdlog::warn("[SkyrimCoop] Door trip: no arrival detected (the server lets the partners follow anyway)");
+        m_doorArrivalWatch.reset();
+    }
 }

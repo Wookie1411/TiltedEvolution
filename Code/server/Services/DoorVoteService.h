@@ -21,6 +21,7 @@ private:
     void OnDoorVoteRequest(const PacketEvent<DoorVoteRequest>& acMessage) noexcept;
 
     void SendToParty(uint32_t aPartyId, const NotifyDoorVote& acMessage) const noexcept;
+    void LetPartnersFollow(uint32_t aPartyId, const char* acWhy) noexcept;
 
     struct Vote
     {
@@ -31,6 +32,14 @@ private:
 
     World& m_world;
     TiltedPhoques::Map<uint32_t, Vote> m_votes; // party id -> open vote
+
+    // Passed votes where the host went through first and the partners wait for the host's arrival.
+    struct Follow
+    {
+        GameId DoorId;
+        std::chrono::steady_clock::time_point Deadline;
+    };
+    TiltedPhoques::Map<uint32_t, Follow> m_follows; // party id -> waiting partners
 
     entt::scoped_connection m_updateConnection;
     entt::scoped_connection m_doorVoteConnection;
