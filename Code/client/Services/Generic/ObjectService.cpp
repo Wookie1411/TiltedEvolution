@@ -481,6 +481,19 @@ void ObjectService::OnNotifyDoorVote(const NotifyDoorVote& acMessage) noexcept
         return;
     }
 
+    if (acMessage.VoteStatus == NotifyDoorVote::kCancelled)
+    {
+        switch (acMessage.Reason)
+        {
+        case NotifyDoorVote::kWithdrawn:
+            overlay.SendSystemMessage(cFromMe ? std::string("You stepped away from the door.") : fmt::format("{} stepped away from the door.", acMessage.VoterName.c_str()));
+            break;
+        case NotifyDoorVote::kExpired: overlay.SendSystemMessage("Nobody followed through the door in time. Press E again to retry."); break;
+        default: overlay.SendSystemMessage("Door vote cancelled: a party member left."); break;
+        }
+        return;
+    }
+
     const uint32_t cDoorId = m_world.GetModSystem().GetGameId(acMessage.DoorId);
     TESObjectREFR* pDoor = Cast<TESObjectREFR>(TESForm::GetById(cDoorId));
     if (!pDoor)

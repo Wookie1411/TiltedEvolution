@@ -13,6 +13,14 @@ struct NotifyDoorVote final : ServerMessage
     {
         kWaiting = 0, // someone voted, not everyone yet
         kPassed = 1,  // everyone voted for DoorId: go through it now
+        kCancelled = 2, // vote is gone, see CancelReason
+    };
+
+    enum CancelReason : uint8_t
+    {
+        kWithdrawn = 0,  // VoterId pressed E on the same door again
+        kExpired = 1,    // nobody added a vote for a while
+        kPlayerLeft = 2, // a voter left the party or the server
     };
 
     NotifyDoorVote()
@@ -26,7 +34,7 @@ struct NotifyDoorVote final : ServerMessage
     bool operator==(const NotifyDoorVote& acRhs) const noexcept
     {
         return GetOpcode() == acRhs.GetOpcode() && VoteStatus == acRhs.VoteStatus && DoorId == acRhs.DoorId && VoterId == acRhs.VoterId && VoterName == acRhs.VoterName &&
-               Votes == acRhs.Votes && Needed == acRhs.Needed;
+               Votes == acRhs.Votes && Needed == acRhs.Needed && Reason == acRhs.Reason;
     }
 
     uint8_t VoteStatus{kWaiting};
@@ -35,4 +43,5 @@ struct NotifyDoorVote final : ServerMessage
     TiltedPhoques::String VoterName{};
     uint8_t Votes{};
     uint8_t Needed{};
+    uint8_t Reason{};
 };

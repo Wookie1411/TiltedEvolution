@@ -8,6 +8,7 @@ void NotifyDoorVote::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const 
     Serialization::WriteString(aWriter, VoterName);
     aWriter.WriteBits(Votes, 8);
     aWriter.WriteBits(Needed, 8);
+    aWriter.WriteBits(Reason, 8);
 }
 
 void NotifyDoorVote::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -24,4 +25,6 @@ void NotifyDoorVote::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noex
     Votes = value & 0xFF;
     aReader.ReadBits(value, 8);
     Needed = value & 0xFF;
+    aReader.ReadBits(value, 8);
+    Reason = value & 0xFF;
 }
