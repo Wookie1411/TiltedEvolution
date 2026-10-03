@@ -57,7 +57,8 @@ void DoorVoteService::OnUpdate(const UpdateEvent&) noexcept
         notify.DoorId = vote.DoorId;
         notify.Needed = static_cast<uint8_t>(pParty->Members.size());
 
-        bool voterLeft = false;
+        // Nobody left to wait for (e.g. the partner disconnected) also counts as "a player left".
+        bool voterLeft = pParty->Members.size() < 2;
         for (uint32_t voterId : vote.Voters)
         {
             const bool cStillMember = std::any_of(pParty->Members.begin(), pParty->Members.end(), [voterId](const Player* pMember) { return pMember->GetId() == voterId; });
