@@ -8,8 +8,12 @@
 #include <Messages/NotifyChatMessageBroadcast.h>
 #include <Messages/TeleportCommandResponse.h>
 
+#include <Setting.h>
+
 namespace
 {
+Console::Setting bEnableTether{"SkyrimCoop:bEnableTether", "Party members must stay near the party leader (warning, then teleport)", true};
+
 constexpr auto kCheckInterval = std::chrono::seconds(1);
 // Being out of range this long counts (shorter gaps happen during loading screens).
 constexpr auto kGracePeriod = std::chrono::seconds(3);
@@ -92,6 +96,12 @@ void TetherService::OnUpdate(const UpdateEvent&) noexcept
     if (cNow < m_nextCheck)
         return;
     m_nextCheck = cNow + kCheckInterval;
+
+    if (!bEnableTether)
+    {
+        m_partners.clear();
+        return;
+    }
 
     auto& partyService = m_world.GetPartyService();
     auto& playerManager = m_world.GetPlayerManager();

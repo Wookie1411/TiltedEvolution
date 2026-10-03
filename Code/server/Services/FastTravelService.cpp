@@ -9,8 +9,12 @@
 #include <Messages/NotifyFastTravel.h>
 #include <Messages/TeleportCommandResponse.h>
 
+#include <Setting.h>
+
 namespace
 {
+Console::Setting bEnableFastTravelVote{"SkyrimCoop:bEnableFastTravelVote", "Fast travel asks the other party members and takes everyone along", true};
+
 // Time the others have to answer.
 constexpr auto kAnswerTimeout = std::chrono::seconds(30);
 // Time the requester has to arrive after approval before the request is dropped.
@@ -98,8 +102,8 @@ void FastTravelService::OnFastTravelRequest(const PacketEvent<FastTravelRequest>
         notify.RequesterName = pPlayer->GetUsername();
         notify.Destination = cPacket.Destination;
 
-        // Alone: nothing to ask, travel right away.
-        if (!pParty || pParty->Members.size() < 2)
+        // Switched off, or alone: nothing to ask, travel right away (alone).
+        if (!bEnableFastTravelVote || !pParty || pParty->Members.size() < 2)
         {
             notify.TravelEvent = NotifyFastTravel::kApproved;
             pPlayer->Send(notify);

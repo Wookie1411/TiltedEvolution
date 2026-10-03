@@ -8,8 +8,12 @@
 #include <Messages/DoorVoteRequest.h>
 #include <Messages/NotifyDoorVote.h>
 
+#include <Setting.h>
+
 namespace
 {
+Console::Setting bEnableDoorVoting{"SkyrimCoop:bEnableDoorVoting", "Load doors only open when every party member pressed E on the same door", true};
+
 // A vote nobody has added to for this long is cancelled.
 constexpr auto kVoteTimeout = std::chrono::seconds(60);
 // Partners follow at the latest this long after the host went through (if the host never reports arrival).
@@ -148,8 +152,8 @@ void DoorVoteService::OnDoorVoteRequest(const PacketEvent<DoorVoteRequest>& acMe
         return;
     }
 
-    // Alone (the client thought it had a partner, but the party changed meanwhile): just let it through.
-    if (!pParty || pParty->Members.size() < 2)
+    // Door voting switched off, or alone (the client thought it had a partner): just let it through.
+    if (!bEnableDoorVoting || !pParty || pParty->Members.size() < 2)
     {
         notify.VoteStatus = NotifyDoorVote::kPassed;
         notify.Votes = notify.Needed = 1;
