@@ -29,21 +29,23 @@ private:
     void ReloadSettingsIfChanged() noexcept;
     void DrawCompassMarkers(float aWidth, float aHeight) noexcept;
     void DrawSpeechBubbles(float aWidth, float aHeight) noexcept;
+    static float HudScale(float aWidth, float aHeight) noexcept { return std::min(aWidth / 1280.f, aHeight / 720.f); }
 
     struct Settings
     {
+        // Sizes and positions are in HUD units: Skyrim lays its HUD out on a 1280x720 stage that is
+        // scaled by min(width / 1280, height / 720) and centred on the screen.
         bool CompassEnabled = true;
-        float CompassCenterX = 0.5f;   // fraction of screen width
-        float CompassY = 0.055f;       // fraction of screen height (vanilla compass sits at the top)
-        float CompassHalfWidth = 0.29f; // half the compass width, as a fraction of screen HEIGHT (HUD scales with height)
-        float CompassHalfAngle = 90.f; // degrees from the centre to the compass edge
-        float CompassMarkerSize = 0.011f; // fraction of screen height
+        float CompassY = 39.6f;          // HUD units from the top of the stage (values tuned on 3360x1440)
+        float CompassHalfWidth = 208.8f; // HUD units from the compass centre to its edge
+        float CompassHalfAngle = 90.f;   // degrees from the centre to the compass edge
+        float CompassMarkerSize = 7.9f;  // HUD units
 
         bool BubblesEnabled = true;
-        float BubbleHeadOffset = 25.f;  // game units above the character's height
+        float BubbleHeadOffset = 25.f;    // game units above the character's height
         float BubbleMaxDistance = 3000.f; // game units
-        float BubbleFontScale = 1.6f;
-        float BubbleMaxWidth = 0.25f;   // fraction of screen width
+        float BubbleTextSize = 9.f;       // HUD units (font height)
+        float BubbleMaxWidth = 260.f;     // HUD units
     };
 
     struct Bubble

@@ -121,7 +121,6 @@ void CoopOverlayService::ReloadSettingsIfChanged() noexcept
     Settings s{};
     const auto& p = m_settingsPath;
     s.CompassEnabled = ReadFloat(p, "Compass", "Enabled", 1.f) != 0.f;
-    s.CompassCenterX = ReadFloat(p, "Compass", "CenterX", s.CompassCenterX);
     s.CompassY = ReadFloat(p, "Compass", "Y", s.CompassY);
     s.CompassHalfWidth = ReadFloat(p, "Compass", "HalfWidth", s.CompassHalfWidth);
     s.CompassHalfAngle = ReadFloat(p, "Compass", "HalfAngle", s.CompassHalfAngle);
@@ -129,7 +128,7 @@ void CoopOverlayService::ReloadSettingsIfChanged() noexcept
     s.BubblesEnabled = ReadFloat(p, "Bubbles", "Enabled", 1.f) != 0.f;
     s.BubbleHeadOffset = ReadFloat(p, "Bubbles", "HeadOffset", s.BubbleHeadOffset);
     s.BubbleMaxDistance = ReadFloat(p, "Bubbles", "MaxDistance", s.BubbleMaxDistance);
-    s.BubbleFontScale = ReadFloat(p, "Bubbles", "FontScale", s.BubbleFontScale);
+    s.BubbleTextSize = ReadFloat(p, "Bubbles", "TextSize", s.BubbleTextSize);
     s.BubbleMaxWidth = ReadFloat(p, "Bubbles", "MaxWidth", s.BubbleMaxWidth);
     m_settings = s;
     spdlog::info("[SkyrimCoop] Overlay settings loaded from {}", m_settingsPath.string());
@@ -197,9 +196,12 @@ void CoopOverlayService::DrawCompassMarkers(float aWidth, float aHeight) noexcep
         if (std::abs(relative) > m_settings.CompassHalfAngle)
             continue;
 
-        const float cX = m_settings.CompassCenterX * aWidth + relative / m_settings.CompassHalfAngle * m_settings.CompassHalfWidth * aHeight;
-        const float cY = m_settings.CompassY * aHeight;
-        const float cSize = m_settings.CompassMarkerSize * aHeight;
+        // HUD stage (1280x720) scaled to fit and centred, like the game's own HUD.
+        const float cScale = HudScale(aWidth, aHeight);
+        const float cStageTop = (aHeight - 720.f * cScale) * 0.5f;
+        const float cX = aWidth * 0.5f + relative / m_settings.CompassHalfAngle * m_settings.CompassHalfWidth * cScale;
+        const float cY = cStageTop + m_settings.CompassY * cScale;
+        const float cSize = m_settings.CompassMarkerSize * cScale;
 
         // A diamond: different from the game's quest/location markers.
         const ImVec2 cTop{cX, cY - cSize}, cRight{cX + cSize * 0.7f, cY}, cBottom{cX, cY + cSize}, cLeft{cX - cSize * 0.7f, cY};
@@ -214,8 +216,9 @@ void CoopOverlayService::DrawSpeechBubbles(float aWidth, float aHeight) noexcept
     const NiPoint3 cMe = PlayerCharacter::Get()->position;
     ImDrawList* pDraw = ImGui::GetForegroundDrawList();
     ImFont* pFont = ImGui::GetFont();
-    const float cFontSize = ImGui::GetFontSize() * m_settings.BubbleFontScale * (aHeight / 1080.f);
-    const float cWrap = m_settings.BubbleMaxWidth * aWidth;
+    const float cScale = HudScale(aWidth, aHeight);
+    const float cFontSize = m_settings.BubbleTextSize * cScale;
+    const float cWrap = m_settings.BubbleMaxWidth * cScale;
     const float cPad = cFontSize * 0.5f;
 
     std::scoped_lock lock(m_mutex);
