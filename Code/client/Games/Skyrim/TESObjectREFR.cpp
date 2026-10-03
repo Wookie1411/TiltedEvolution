@@ -17,6 +17,7 @@
 #include <ExtraData/ExtraHealth.h>
 #include <ExtraData/ExtraPoison.h>
 #include <ExtraData/ExtraSoul.h>
+#include <ExtraData/ExtraTeleport.h>
 #include <ExtraData/ExtraTextDisplayData.h>
 #include <ExtraData/ExtraWorn.h>
 #include <ExtraData/ExtraWornLeft.h>
@@ -1017,9 +1018,35 @@ bool TP_MAKE_THISCALL(HookPlayAnimation, void, uint32_t auiStackID, TESObjectREF
     return TiltedPhoques::ThisCall(RealPlayAnimation, apThis, auiStackID, apSelf, apEventName);
 }
 
+// SkyrimCoop M2 step 1: log when the local player uses a load door (no behavior change).
+static void LogLoadDoorActivation(TESObjectREFR* apDoor, Actor* apActivator) noexcept
+{
+    if (apActivator != PlayerCharacter::Get() || !apDoor->baseForm || apDoor->baseForm->formType != FormType::Door)
+        return;
+
+    auto* pTeleport = Cast<ExtraTeleport>(apDoor->extraData.GetByType(ExtraDataType::Teleport));
+    if (!pTeleport || !pTeleport->pTeleportData)
+        return;
+
+    const TESObjectCELL* pCell = apDoor->GetParentCellEx();
+    const TESObjectREFR* pLinkedDoor = TESObjectREFR::GetByHandle(pTeleport->pTeleportData->linkedDoor);
+    const TESObjectCELL* pTargetCell = pLinkedDoor ? pLinkedDoor->GetParentCellEx() : nullptr;
+    const auto& target = pTeleport->pTeleportData->position;
+    const Lock* pLock = apDoor->GetLock();
+    const bool cLocked = pLock && (pLock->flags & 0xFF); // same check as ObjectService::OnActivate
+
+    spdlog::info("[SkyrimCoop] Load door used: door {:X} '{}' in cell {:X} -> linked door {:X} in cell {:X} at ({:.0f}, {:.0f}, {:.0f}), locked: {}",
+                 apDoor->formID, apDoor->baseForm->GetName(), pCell ? pCell->formID : 0,
+                 pLinkedDoor ? pLinkedDoor->formID : 0, pTargetCell ? pTargetCell->formID : 0,
+                 target.x, target.y, target.z, cLocked);
+}
+
 bool TP_MAKE_THISCALL(HookActivate, TESObjectREFR, TESObjectREFR* apActivator, uint8_t aUnk1, TESBoundObject* apObjectToGet, int32_t aCount, char aDefaultProcessing)
 {
     Actor* pActivator = Cast<Actor>(apActivator);
+
+    if (pActivator)
+        LogLoadDoorActivation(apThis, pActivator);
 
     // Exclude books from activation since only reading them removes them from the cell
     // Note: Books are now unsynced 
