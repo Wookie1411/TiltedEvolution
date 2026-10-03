@@ -10,7 +10,8 @@ struct NotifyFastTravel;
 /**
  * @brief SkyrimCoop fast-travel confirmation. When a party member confirms a fast travel on the
  * map, the other members are asked first. If all accept, the requester travels; once they report
- * their arrival, the others are moved to them. One open request per party.
+ * their arrival, the others are moved to them. The host always goes first: if a partner asked, the
+ * host is moved to the chosen map marker and everyone else follows the host. One open request per party.
  */
 class FastTravelService
 {
@@ -29,6 +30,8 @@ private:
         uint32_t RequesterId{};
         String RequesterName{};
         String Destination{};
+        GameId MarkerId{};
+        uint32_t TravellerId{}; // who travels first: the requester, or the host if a partner asked
         Vector<uint32_t> Accepted;
         bool Approved = false;
         std::chrono::steady_clock::time_point Started;

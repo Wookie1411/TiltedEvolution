@@ -7,6 +7,7 @@ void FastTravelRequest::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) con
     CellId.Serialize(aWriter);
     WorldSpaceId.Serialize(aWriter);
     Position.Serialize(aWriter);
+    MarkerId.Serialize(aWriter);
 }
 
 void FastTravelRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -20,4 +21,5 @@ void FastTravelRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) n
     CellId.Deserialize(aReader);
     WorldSpaceId.Deserialize(aReader);
     Position.Deserialize(aReader);
+    MarkerId.Deserialize(aReader);
 }

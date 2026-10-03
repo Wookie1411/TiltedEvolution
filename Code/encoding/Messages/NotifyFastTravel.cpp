@@ -7,6 +7,8 @@ void NotifyFastTravel::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) cons
     Serialization::WriteString(aWriter, RequesterName);
     Serialization::WriteString(aWriter, Destination);
     Serialization::WriteString(aWriter, AnswerName);
+    MarkerId.Serialize(aWriter);
+    Serialization::WriteBool(aWriter, HostFirst);
 }
 
 void NotifyFastTravel::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -20,4 +22,6 @@ void NotifyFastTravel::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) no
     RequesterName = Serialization::ReadString(aReader);
     Destination = Serialization::ReadString(aReader);
     AnswerName = Serialization::ReadString(aReader);
+    MarkerId.Deserialize(aReader);
+    HostFirst = Serialization::ReadBool(aReader);
 }

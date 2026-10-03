@@ -54,10 +54,14 @@ static int32_t s_pendingCursorX = 0;
 static int32_t s_pendingCursorY = 0;
 static bool s_runningApproved = false;
 
-static String GetSelectedMarkerName(MapMenu* apMapMenu) noexcept
+static TESObjectREFR* GetSelectedMarker(MapMenu* apMapMenu) noexcept
 {
     const uint32_t cHandle = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(apMapMenu) + kMapMenuSelectedMarkerOffset);
-    TESObjectREFR* pMarker = TESObjectREFR::GetByHandle(cHandle);
+    return TESObjectREFR::GetByHandle(cHandle);
+}
+
+static String GetMarkerName(TESObjectREFR* pMarker) noexcept
+{
     if (!pMarker)
         return {};
 
@@ -120,9 +124,10 @@ void TP_MAKE_THISCALL(HookFastTravelConfirmRun, FastTravelConfirmCallback, uint8
     s_pendingCursorX = apThis->cursorPosX;
     s_pendingCursorY = apThis->cursorPosY;
 
-    const String cDestination = GetSelectedMarkerName(apThis->pMapMenu);
-    spdlog::info("[SkyrimCoop] Fast travel to '{}' held back, asking the party", cDestination.c_str());
-    world.ctx().at<FastTravelService>().OnLocalFastTravelConfirmed(cDestination);
+    TESObjectREFR* pMarker = GetSelectedMarker(apThis->pMapMenu);
+    const String cDestination = GetMarkerName(pMarker);
+    spdlog::info("[SkyrimCoop] Fast travel to '{}' (marker {:X}) held back, asking the party", cDestination.c_str(), pMarker ? pMarker->formID : 0);
+    world.ctx().at<FastTravelService>().OnLocalFastTravelConfirmed(cDestination, pMarker ? pMarker->formID : 0);
 }
 
 static TiltedPhoques::Initializer s_fastTravelConfirmHooks(

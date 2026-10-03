@@ -12,7 +12,7 @@ struct FastTravelRequest final : ClientMessage
 
     enum Action : uint8_t
     {
-        kAsk = 0,     // I answered "Yes" in the map's fast-travel prompt (Destination is set)
+        kAsk = 0,     // I answered "Yes" in the map's fast-travel prompt (Destination and MarkerId are set)
         kAccept = 1,  // I accept the other player's fast travel
         kDecline = 2, // I decline it
         kCancel = 3,  // I withdraw my own request (e.g. closed the map)
@@ -30,7 +30,7 @@ struct FastTravelRequest final : ClientMessage
     bool operator==(const FastTravelRequest& acRhs) const noexcept
     {
         return GetOpcode() == acRhs.GetOpcode() && RequestAction == acRhs.RequestAction && Destination == acRhs.Destination && CellId == acRhs.CellId &&
-               WorldSpaceId == acRhs.WorldSpaceId && Position == acRhs.Position;
+               WorldSpaceId == acRhs.WorldSpaceId && Position == acRhs.Position && MarkerId == acRhs.MarkerId;
     }
 
     uint8_t RequestAction{kAsk};
@@ -38,4 +38,5 @@ struct FastTravelRequest final : ClientMessage
     GameId CellId{};
     GameId WorldSpaceId{};
     Vector3_NetQuantize Position{};
+    GameId MarkerId{}; // the chosen map marker (so the host can be moved there first)
 };

@@ -112,6 +112,8 @@ void FastTravelService::OnFastTravelRequest(const PacketEvent<FastTravelRequest>
         request.RequesterId = pPlayer->GetId();
         request.RequesterName = pPlayer->GetUsername();
         request.Destination = cPacket.Destination;
+        request.MarkerId = cPacket.MarkerId;
+        request.TravellerId = pPlayer->GetId();
         request.Started = std::chrono::steady_clock::now();
         m_requests[*cPartyId] = std::move(request);
 
@@ -152,7 +154,26 @@ void FastTravelService::OnFastTravelRequest(const PacketEvent<FastTravelRequest>
             request.Approved = true;
             request.Started = std::chrono::steady_clock::now();
             notify.TravelEvent = NotifyFastTravel::kApproved;
-            SendToParty(*cPartyId, notify);
+
+            // The host always goes first. If a partner asked, the host is moved to the marker
+            // and everyone else (the requester too) follows the host after arrival.
+            if (request.RequesterId != pParty->LeaderPlayerId)
+            {
+                request.TravellerId = pParty->LeaderPlayerId;
+                notify.HostFirst = true;
+                notify.MarkerId = request.MarkerId;
+
+                for (Player* pMember : pParty->Members)
+                {
+                    NotifyFastTravel message = notify;
+                    if (pMember->GetId() == pParty->LeaderPlayerId)
+                        message.TravelEvent = NotifyFastTravel::kHostGoFirst;
+                    pMember->Send(message);
+                }
+                spdlog::info("[SkyrimCoop] Fast travel in party {}: approved, host goes first", *cPartyId);
+            }
+            else
+                SendToParty(*cPartyId, notify);
         }
         break;
     }
@@ -175,7 +196,7 @@ void FastTravelService::OnFastTravelRequest(const PacketEvent<FastTravelRequest>
     }
     case FastTravelRequest::kArrived:
     {
-        if (pPlayer->GetId() != request.RequesterId || !request.Approved)
+        if (pPlayer->GetId() != request.TravellerId || !request.Approved)
             return;
 
         // Bring everyone else to where the requester arrived (they load in after the requester).

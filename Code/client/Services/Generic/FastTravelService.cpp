@@ -4,6 +4,7 @@
 #include <Events/UpdateEvent.h>
 #include <Messages/FastTravelRequest.h>
 #include <Messages/NotifyFastTravel.h>
+#include <Structs/GridCellCoords.h>
 
 #include <PlayerCharacter.h>
 #include <Forms/TESObjectCELL.h>
@@ -50,14 +51,16 @@ void FastTravelService::SendAction(uint8_t aAction) noexcept
     m_transport.Send(request);
 }
 
-void FastTravelService::OnLocalFastTravelConfirmed(const String& acDestination) noexcept
+void FastTravelService::OnLocalFastTravelConfirmed(const String& acDestination, uint32_t aMarkerFormId) noexcept
 {
     m_world.GetRunner().Queue(
-        [this, destination = acDestination]()
+        [this, destination = acDestination, aMarkerFormId]()
         {
             FastTravelRequest request{};
             request.RequestAction = FastTravelRequest::kAsk;
             request.Destination = destination;
+            if (aMarkerFormId)
+                m_world.GetModSystem().GetServerModId(aMarkerFormId, request.MarkerId);
             m_transport.Send(request);
             m_waitingForAnswers = true;
         });
@@ -74,6 +77,24 @@ void FastTravelService::OnUpdate(const UpdateEvent&) noexcept
         ClearPendingFastTravel();
         SendAction(FastTravelRequest::kCancel);
         overlay.SendSystemMessage("Fast travel cancelled: you closed the map.");
+    }
+
+    // Host moved to a partner's destination: arrived once the loading screen is gone and we stand there.
+    if (m_awaitingMoveArrival)
+    {
+        PlayerCharacter* pPlayer = PlayerCharacter::Get();
+        UI* pUI = UI::Get();
+        const bool cLoading = pUI && pUI->GetMenuOpen(BSFixedString("Loading Menu"));
+        if (pPlayer && !cLoading && glm::distance(glm::vec3(pPlayer->position), glm::vec3(m_moveTarget)) < 2000.f)
+        {
+            m_awaitingMoveArrival = false;
+            SendArrived();
+        }
+        else if (std::chrono::steady_clock::now() > m_moveDeadline)
+        {
+            m_awaitingMoveArrival = false;
+            spdlog::error("[SkyrimCoop] Fast travel: never arrived at the partner's destination");
+        }
     }
 
     if (!m_askedToAnswer)
@@ -123,9 +144,27 @@ void FastTravelService::OnNotifyFastTravel(const NotifyFastTravel& acMessage) no
         overlay.SendSystemMessage(fmt::format("{} wants to fast travel to {}. Press Y to accept or N to decline (30 s).", acMessage.RequesterName.c_str(), cDestination));
         break;
 
+    case NotifyFastTravel::kHostGoFirst:
+        m_askedToAnswer = false;
+        overlay.SendSystemMessage(fmt::format("Travelling to {} first ({}'s request). They'll follow you.", cDestination, acMessage.RequesterName.c_str()));
+        MoveToMarker(acMessage);
+        break;
+
     case NotifyFastTravel::kApproved:
         m_askedToAnswer = false;
-        if (cMine)
+        if (acMessage.HostFirst)
+        {
+            // The host goes first; the requester's held-back travel is dropped and the map closed.
+            if (cMine)
+            {
+                m_waitingForAnswers = false;
+                ClearPendingFastTravel();
+                if (UI* pUI = UI::Get())
+                    pUI->CloseAllMenus();
+            }
+            overlay.SendSystemMessage(fmt::format("Fast travel to {} accepted. The host travels first, you'll follow once they've arrived.", cDestination));
+        }
+        else if (cMine)
         {
             m_waitingForAnswers = false;
             if (ExecutePendingFastTravel())
@@ -181,6 +220,42 @@ void FastTravelService::SendArrived() noexcept
 
     spdlog::info("[SkyrimCoop] Fast travel arrived in cell {:X} at ({:.0f}, {:.0f}, {:.0f})", pCell->formID, pPlayer->position.x, pPlayer->position.y, pPlayer->position.z);
     m_transport.Send(request);
+}
+
+void FastTravelService::MoveToMarker(const NotifyFastTravel& acMessage) noexcept
+{
+    const uint32_t cMarkerId = m_world.GetModSystem().GetGameId(acMessage.MarkerId);
+    TESObjectREFR* pMarker = Cast<TESObjectREFR>(TESForm::GetById(cMarkerId));
+    if (!pMarker)
+    {
+        spdlog::error("[SkyrimCoop] Fast travel: map marker {:X} not found", cMarkerId);
+        m_world.GetOverlayService().SendSystemMessage("Fast travel failed: destination not found.");
+        SendAction(FastTravelRequest::kCancel);
+        return;
+    }
+
+    // Exterior markers: load the grid cell at the marker; interior markers: their own cell.
+    TESObjectCELL* pCell = nullptr;
+    if (TESWorldSpace* pWorldSpace = pMarker->GetWorldSpace())
+    {
+        const GridCellCoords cCoords = GridCellCoords::CalculateGridCellCoords(pMarker->position.x, pMarker->position.y);
+        pCell = pWorldSpace->LoadCell(cCoords.X, cCoords.Y);
+    }
+    if (!pCell)
+        pCell = pMarker->GetParentCellEx();
+    if (!pCell)
+    {
+        spdlog::error("[SkyrimCoop] Fast travel: no cell for map marker {:X}", cMarkerId);
+        SendAction(FastTravelRequest::kCancel);
+        return;
+    }
+
+    spdlog::info("[SkyrimCoop] Fast travel: host moving to marker {:X} in cell {:X} at ({:.0f}, {:.0f}, {:.0f})", cMarkerId, pCell->formID, pMarker->position.x, pMarker->position.y,
+                 pMarker->position.z);
+    m_moveTarget = pMarker->position;
+    m_moveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    m_awaitingMoveArrival = true;
+    PlayerCharacter::Get()->MoveTo(pCell, pMarker->position);
 }
 
 BSTEventResult FastTravelService::OnEvent(const TESFastTravelEndEvent*, const EventDispatcher<TESFastTravelEndEvent>*)
