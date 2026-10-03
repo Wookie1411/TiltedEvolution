@@ -18,6 +18,7 @@
 #include <Services/MapService.h>
 #include <Services/DoorVoteService.h>
 #include <Services/TetherService.h>
+#include <Services/FastTravelService.h>
 
 #include <es_loader/ESLoader.h>
 
@@ -45,6 +46,7 @@ World::World()
     ctx().emplace<MapService>(*this, m_dispatcher);
     ctx().emplace<DoorVoteService>(*this, m_dispatcher);
     ctx().emplace<TetherService>(*this, m_dispatcher);
+    ctx().emplace<FastTravelService>(*this, m_dispatcher);
 
     ESLoader::ESLoader loader;
     // emplace loaded mods into modscomponent.
