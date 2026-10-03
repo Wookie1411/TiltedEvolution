@@ -36,9 +36,11 @@ private:
         // Sizes and positions are in HUD units: Skyrim lays its HUD out on a 1280x720 stage that is
         // scaled by min(width / 1280, height / 720) and centred on the screen.
         bool CompassEnabled = true;
-        float CompassY = 39.6f;          // HUD units from the top of the stage (values tuned on 3360x1440)
-        float CompassHalfWidth = 208.8f; // HUD units from the compass centre to its edge
-        float CompassHalfAngle = 90.f;   // degrees from the centre to the compass edge
+        // Measured on PC 2's vanilla compass (2880x1800 screenshots): E->S (90 deg) = 276 HUD units,
+        // visible track +-150 HUD units = +-49 deg, centre line 41.8 HUD units below the top edge.
+        float CompassY = 41.8f;          // HUD units from the top of the screen (top HUD elements are anchored to the top)
+        float CompassHalfWidth = 150.f;  // HUD units from the compass centre to the visible edge
+        float CompassHalfAngle = 49.f;   // degrees from the centre to the visible edge
         float CompassMarkerSize = 7.9f;  // HUD units
 
         bool BubblesEnabled = true;
@@ -56,8 +58,10 @@ private:
 
     World& m_world;
     Settings m_settings;
-    std::filesystem::path m_settingsPath;
+    std::filesystem::path m_settingsPath;         // defaults shipped with the build
+    std::filesystem::path m_userSettingsPath;     // config\SkyrimCoopOverlay.ini: per-PC overrides, kept by the installer
     std::filesystem::file_time_type m_settingsTime{};
+    std::filesystem::file_time_type m_userSettingsTime{};
     std::chrono::steady_clock::time_point m_nextSettingsCheck{};
 
     std::mutex m_mutex; // messages arrive on the game thread, drawing happens on the render thread

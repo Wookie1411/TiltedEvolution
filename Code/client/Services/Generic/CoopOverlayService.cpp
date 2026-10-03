@@ -56,6 +56,7 @@ float ReadFloat(const std::filesystem::path& acPath, const char* acSection, cons
 CoopOverlayService::CoopOverlayService(World& aWorld, entt::dispatcher& aDispatcher, ImguiService& aImguiService)
     : m_world(aWorld)
     , m_settingsPath(TiltedPhoques::GetPath() / "SkyrimCoopOverlay.ini")
+    , m_userSettingsPath(TiltedPhoques::GetPath() / "config" / "SkyrimCoopOverlay.ini")
 {
     m_drawConnection = aImguiService.OnDraw.connect<&CoopOverlayService::OnDraw>(this);
     m_chatConnection = aDispatcher.sink<NotifyChatMessageBroadcast>().connect<&CoopOverlayService::OnChatMessage>(this);
@@ -112,26 +113,37 @@ void CoopOverlayService::ReloadSettingsIfChanged() noexcept
         return;
     m_nextSettingsCheck = cNow + std::chrono::seconds(1);
 
-    std::error_code ec;
+    std::error_code ec, userEc;
     const auto cTime = std::filesystem::last_write_time(m_settingsPath, ec);
-    if (ec || cTime == m_settingsTime)
+    const auto cUserTime = std::filesystem::last_write_time(m_userSettingsPath, userEc);
+    if ((ec || cTime == m_settingsTime) && (userEc || cUserTime == m_userSettingsTime))
         return;
-    m_settingsTime = cTime;
+    if (!ec)
+        m_settingsTime = cTime;
+    if (!userEc)
+        m_userSettingsTime = cUserTime;
 
+    // Shipped defaults first, then the per-PC overrides in config\ (only the keys that are set there).
     Settings s{};
-    const auto& p = m_settingsPath;
-    s.CompassEnabled = ReadFloat(p, "Compass", "Enabled", 1.f) != 0.f;
-    s.CompassY = ReadFloat(p, "Compass", "Y", s.CompassY);
-    s.CompassHalfWidth = ReadFloat(p, "Compass", "HalfWidth", s.CompassHalfWidth);
-    s.CompassHalfAngle = ReadFloat(p, "Compass", "HalfAngle", s.CompassHalfAngle);
-    s.CompassMarkerSize = ReadFloat(p, "Compass", "MarkerSize", s.CompassMarkerSize);
-    s.BubblesEnabled = ReadFloat(p, "Bubbles", "Enabled", 1.f) != 0.f;
-    s.BubbleHeadOffset = ReadFloat(p, "Bubbles", "HeadOffset", s.BubbleHeadOffset);
-    s.BubbleMaxDistance = ReadFloat(p, "Bubbles", "MaxDistance", s.BubbleMaxDistance);
-    s.BubbleTextSize = ReadFloat(p, "Bubbles", "TextSize", s.BubbleTextSize);
-    s.BubbleMaxWidth = ReadFloat(p, "Bubbles", "MaxWidth", s.BubbleMaxWidth);
+    for (const auto& p : {m_settingsPath, m_userSettingsPath})
+    {
+        std::error_code exists;
+        if (!std::filesystem::exists(p, exists))
+            continue;
+        s.CompassEnabled = ReadFloat(p, "Compass", "Enabled", s.CompassEnabled ? 1.f : 0.f) != 0.f;
+        s.CompassY = ReadFloat(p, "Compass", "Y", s.CompassY);
+        s.CompassHalfWidth = ReadFloat(p, "Compass", "HalfWidth", s.CompassHalfWidth);
+        s.CompassHalfAngle = ReadFloat(p, "Compass", "HalfAngle", s.CompassHalfAngle);
+        s.CompassMarkerSize = ReadFloat(p, "Compass", "MarkerSize", s.CompassMarkerSize);
+        s.BubblesEnabled = ReadFloat(p, "Bubbles", "Enabled", s.BubblesEnabled ? 1.f : 0.f) != 0.f;
+        s.BubbleHeadOffset = ReadFloat(p, "Bubbles", "HeadOffset", s.BubbleHeadOffset);
+        s.BubbleMaxDistance = ReadFloat(p, "Bubbles", "MaxDistance", s.BubbleMaxDistance);
+        s.BubbleTextSize = ReadFloat(p, "Bubbles", "TextSize", s.BubbleTextSize);
+        s.BubbleMaxWidth = ReadFloat(p, "Bubbles", "MaxWidth", s.BubbleMaxWidth);
+        spdlog::info("[SkyrimCoop] Overlay settings read from {}", p.string());
+    }
     m_settings = s;
-    spdlog::info("[SkyrimCoop] Overlay settings loaded from {}", m_settingsPath.string());
+    spdlog::info("[SkyrimCoop] Overlay: compass Y {} half-width {} half-angle {}", s.CompassY, s.CompassHalfWidth, s.CompassHalfAngle);
 }
 
 void CoopOverlayService::OnDraw() noexcept
@@ -196,11 +208,10 @@ void CoopOverlayService::DrawCompassMarkers(float aWidth, float aHeight) noexcep
         if (std::abs(relative) > m_settings.CompassHalfAngle)
             continue;
 
-        // HUD stage (1280x720) scaled to fit and centred, like the game's own HUD.
+        // Scaled like the game's HUD; the compass is centred horizontally and anchored to the top edge.
         const float cScale = HudScale(aWidth, aHeight);
-        const float cStageTop = (aHeight - 720.f * cScale) * 0.5f;
         const float cX = aWidth * 0.5f + relative / m_settings.CompassHalfAngle * m_settings.CompassHalfWidth * cScale;
-        const float cY = cStageTop + m_settings.CompassY * cScale;
+        const float cY = m_settings.CompassY * cScale;
         const float cSize = m_settings.CompassMarkerSize * cScale;
 
         // A diamond: different from the game's quest/location markers.
